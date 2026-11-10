@@ -24,4 +24,5 @@ jobs:
       - name: Aggiorna dati
         run: python3 scripts/viola.py "${{ github.event.inputs.modo || 'auto' }}"
       - name: Pubblica le modifiche
-        run: bash scripts/pubblica.sh "partita: ${{ github.event.inputs.modo || 'auto' }}"
+        run: |
+          bash scripts/pubblica.sh "partita: ${{ github.event.inputs.modo || 'auto' }}"

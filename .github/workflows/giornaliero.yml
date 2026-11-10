@@ -32,4 +32,5 @@ jobs:
       - name: Aggiorna dati
         run: python3 scripts/viola.py "${{ github.event.inputs.modo || 'heatmap' }}" ${{ github.event.inputs.forza == 'si' && '--forza' || '' }}
       - name: Pubblica le modifiche
-        run: bash scripts/pubblica.sh "giornaliero: ${{ github.event.inputs.modo || 'heatmap' }}"
+        run: |
+          bash scripts/pubblica.sh "giornaliero: ${{ github.event.inputs.modo || 'heatmap' }}"
