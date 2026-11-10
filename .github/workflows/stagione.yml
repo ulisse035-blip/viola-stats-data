@@ -1,0 +1,19 @@
+name: Cambio stagione
+# Il 1 luglio passa alla nuova stagione: tiene la nuova e la precedente, cancella la piu' vecchia.
+on:
+  schedule:
+    - cron: '0 4 1 7 *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: viola-dati
+  cancel-in-progress: false
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/viola.py season-rollover
+      - run: bash scripts/pubblica.sh "cambio stagione"

@@ -1,0 +1,35 @@
+name: Giornaliero (heatmap, statistiche stagionali, cambio stagione)
+# Due volte al giorno: heatmap/posizioni medie appena FotMob le pubblica (di solito ~20 ore dopo la partita),
+# statistiche stagionali dei giocatori, classifica e calendario; il 1 luglio passa alla nuova stagione.
+on:
+  schedule:
+    - cron: '20 5 * * *'
+    - cron: '20 17 * * *'
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'heatmap | fine | giocatori | backfill | season-rollover'
+        default: 'heatmap'
+        required: false
+      forza:
+        description: 'riscarica anche i dati gia presenti (si/no)'
+        default: 'no'
+        required: false
+permissions:
+  contents: write
+concurrency:
+  group: viola-dati
+  cancel-in-progress: false
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cambio stagione (solo se e' iniziata una nuova stagione)
+        if: ${{ github.event_name == 'schedule' }}
+        run: python3 scripts/viola.py season-rollover
+      - name: Aggiorna dati
+        run: python3 scripts/viola.py "${{ github.event.inputs.modo || 'heatmap' }}" ${{ github.event.inputs.forza == 'si' && '--forza' || '' }}
+      - name: Pubblica le modifiche
+        run: bash scripts/pubblica.sh "giornaliero: ${{ github.event.inputs.modo || 'heatmap' }}"
