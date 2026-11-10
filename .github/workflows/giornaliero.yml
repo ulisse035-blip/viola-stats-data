@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       modo:
-        description: 'heatmap | fine | giocatori | backfill | season-rollover'
+        description: 'heatmap | fine | giocatori | backfill | season-rollover | squadra'
         default: 'heatmap'
         required: false
       forza:

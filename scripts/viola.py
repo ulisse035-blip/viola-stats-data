@@ -521,6 +521,54 @@ def role_of(pid):
     if 'wing' in r or 'striker' in r or 'forward' in r: return 'A'
     return 'C'
 
+OFF_ROLE = {'Goalkeeper': 'P', 'Defender': 'D', 'Midfielder': 'C', 'Forward': 'A', 'Attacker': 'A', 'Striker': 'A'}
+def official_squad():
+    """prima squadra dal sito ufficiale acffiorentina.com: {numero: (nome, ruolo P/D/C/A)}; None se non leggibile"""
+    try: h = get('https://www.acffiorentina.com/fiorentina-prima-squadra-maschile')
+    except Exception as e: log('  rosa ufficiale non disponibile', e); return None
+    out = {}
+    for sec in re.split(r'<div class="role-wrapper"', h)[1:]:
+        rid = (re.search(r'id="(\w+)"', sec) or [None, ''])[1]
+        ro = next((v for k, v in OFF_ROLE.items() if rid.lower().startswith(k.lower())), None)
+        if not ro: continue
+        for num, nm in re.findall(r'<h3 class="player-number">\s*(\d+)\s*</h3>\s*<h3 class="player-name">(.*?)</h3>', sec, re.S):
+            nm = ' '.join(re.sub(r'<[^>]+>', ' ', nm).split())
+            out[num] = (nm, ro)
+    if len(out) < 15: log(f'  rosa ufficiale: solo {len(out)} giocatori letti, la ignoro'); return None
+    return out
+
+def espn_squad():
+    try:
+        d = get('https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/teams/109/roster', js=True)
+        r = {(str(a.get('jersey') or ''), norm(a.get('displayName'))) for a in d.get('athletes') or []}
+        return r if len(r) >= 15 else None
+    except Exception as e: log('  rosa ESPN non disponibile', e); return None
+
+def current_members(members):
+    """tiene solo chi e' davvero in prima squadra: FotMob incrociato con il sito ufficiale (o, in mancanza, con ESPN).
+    FotMob a volte lascia in rosa giocatori ceduti o tornati in Primavera."""
+    off = official_squad()
+    def toks(x): return set(re.findall(r'[a-z]{3,}', norm(x)))
+    if off:
+        keep = {}
+        for pid, (mbr, ro) in members.items():
+            num = str(mbr.get('shirtNumber') or '')
+            if num and num in off: keep[pid] = (mbr, off[num][1]); continue   # stesso numero di maglia
+            t = toks(mbr['name'])                                              # senza numero: nome
+            hit = next((v for v in off.values() if t and t <= toks(v[0])), None)
+            if hit: keep[pid] = (mbr, hit[1])
+        if len(keep) >= 15:
+            missing = [v[0] for k, v in off.items() if not any(str(m.get('shirtNumber') or '') == k for m, _ in keep.values())]
+            if missing: log('  in rosa sul sito ufficiale ma non trovati su FotMob:', missing)
+            log(f'  rosa: {len(keep)} giocatori (FotMob incrociato con il sito ufficiale), esclusi:', [m['name'] for p, (m, _) in members.items() if p not in keep])
+            return keep, 'sito ufficiale ACF Fiorentina'
+    es = espn_squad()
+    if es:
+        keep = {pid: v for pid, v in members.items() if any((n and n == str(v[0].get('shirtNumber') or '')) or nm == norm(v[0]['name']) for n, nm in es)}
+        if len(keep) >= 15:
+            log(f'  rosa: {len(keep)} giocatori (FotMob incrociato con ESPN)'); return keep, 'ESPN'
+    return members, None
+
 def season_data(s, fx, table):
     """stagione.json (stesso formato delle stagioni precedenti dell'app) – calcolata dai dati partita"""
     cur = rjson(f's/{s}/stagione.json', {}) or {}
@@ -556,6 +604,8 @@ def season_data(s, fx, table):
         for grp in team['squad']['squad']:
             if grp['title'] == 'coach': continue
             for mbr in grp['members']: members[str(mbr['id'])] = (mbr, ROLE.get(grp['title'], 'C'))
+    fonte_rosa = None
+    if members: members, fonte_rosa = current_members(members)
     tin = {}
     if team:
         try:
@@ -570,10 +620,11 @@ def season_data(s, fx, table):
         gioc.append({'fm': int(pid), 'num': str(mbr.get('shirtNumber') or ''), 'naz': mbr.get('ccode'), 'nome': mbr['name'], 'ruolo': ro, 'note': note,
                      'cap': False, 'pres': a['pres'], 'tit': a['tit'], 'min': a['min'], 'gol': a['gol'], 'ass': a['ass'], 'rig': a['rig'], 'flag': ''})
         seen.add(pid)
-    for pid, a in ag.items():   # giocatori usciti in corso di stagione
+    usciti = []
+    for pid, a in ag.items():   # giocatori usciti: non compaiono piu' nella rosa della stagione in corso (restano nelle partite giocate)
         if pid in seen or not a['pres']: continue
-        gioc.append({'fm': int(pid), 'num': str(a['num'] or ''), 'naz': '', 'nome': a['nome'], 'ruolo': role_of(pid), 'note': [{'t': 'out', 'x': 'non più in rosa'}],
-                     'cap': False, 'pres': a['pres'], 'tit': a['tit'], 'min': a['min'], 'gol': a['gol'], 'ass': a['ass'], 'rig': a['rig'], 'flag': ''})
+        usciti.append({'fm': int(pid), 'num': str(a['num'] or ''), 'nome': a['nome'], 'ruolo': role_of(pid),
+                       'pres': a['pres'], 'tit': a['tit'], 'min': a['min'], 'gol': a['gol'], 'ass': a['ass'], 'rig': a['rig']})
     # formazione tipo = modulo piu' usato, per ogni posizione il titolare piu' frequente
     form = cur.get('formazione')
     if mods:
@@ -588,6 +639,10 @@ def season_data(s, fx, table):
         for key, cand in pos.items():
             p, nn = max(cand.values(), key=lambda v: v[1])
             if any(x['fm'] == p['id'] for x in xi): continue
+            if members and str(p['id']) not in members:   # formazione tipo solo con giocatori ancora in rosa
+                alt = [v for v in sorted(cand.values(), key=lambda v: -v[1]) if str(v[0]['id']) in members and not any(x['fm'] == v[0]['id'] for x in xi)]
+                if not alt: continue
+                p, nn = alt[0]
             xi.append({'slot': f'{key[0]}-{key[1]}', 'pos': 'G' if p['gk'] else '', 'nome': p['n'], 'fm': p['id'], 'num': p.get('num'), 'titolare_nel_modulo': nn,
                        'x': round((1 - key[0]) * 84 + 8), 'y': round(100 - key[1] * 100 + (-3 if p['gk'] else 0))})
         xi.sort(key=lambda x: -x['titolare_nel_modulo']); xi = xi[:11]
@@ -598,9 +653,10 @@ def season_data(s, fx, table):
         for grp in team['squad']['squad']:
             if grp['title'] == 'coach' and grp['members']: coach = grp['members'][0]['name']
     out = {'stagione': s, 'in_corso': True, 'allenatore': {'nome': coach or (cur.get('allenatore') or {}).get('nome', ''), 'vice': (cur.get('allenatore') or {}).get('vice')},
-           'classifica': clas, 'fiorentina': fio, 'totali': {'gol': sum(x['gol'] for x in gioc), 'assist': sum(x['ass'] for x in gioc)},
-           'giocatori': gioc, 'rosa_aggiornata': now_utc().astimezone(ROME).strftime('%d/%m/%Y'), 'formazione': form, 'altri_senza_presenze': [],
-           'foto': cur.get('foto'), 'verifiche': check + [f'Marcatori, assist e presenze calcolati da {len(sa)} partite di Serie A (FotMob/Opta), risultati e marcatori verificati con ESPN.'],
+           'classifica': clas, 'fiorentina': fio, 'totali': {'gol': sum(x['gol'] for x in gioc + usciti), 'assist': sum(x['ass'] for x in gioc + usciti)},
+           'giocatori': gioc, 'usciti': usciti, 'rosa_aggiornata': now_utc().astimezone(ROME).strftime('%d/%m/%Y'), 'formazione': form, 'altri_senza_presenze': [],
+           'foto': cur.get('foto'), 'verifiche': check + [f'Marcatori, assist e presenze calcolati da {len(sa)} partite di Serie A (FotMob/Opta), risultati e marcatori verificati con ESPN.']
+                        + ([f'Rosa attuale: FotMob incrociato con {fonte_rosa}; esclusi i giocatori non più in prima squadra' + (' (' + ', '.join(u['nome'] for u in usciti) + ' hanno giocato in questa stagione prima di partire).' if usciti else '.')] if fonte_rosa else []),
            'partite_sa': len(sa)}
     if fio: out['fiorentina'] = dict(fio, zona=fio.get('zona', ''))
     wjson(f's/{s}/stagione.json', out, ignore=('agg', 'rosa_aggiornata'))
@@ -712,6 +768,118 @@ def update_players(seasons, only=None):
     log(f'  giocatori aggiornati: {n}/{len(ids)}')
     return ids
 
+# ------------------------------------------------------------------ Understat (PPDA, PPDA concesso, deep completions) – solo Serie A
+def understat_dates(s):
+    """partite della Fiorentina su Understat per la stagione s; None se Understat non risponde con dati veri (es. manutenzione)"""
+    y = s_start(s); dates = None
+    for url in (f'https://understat.com/getTeamData/Fiorentina/{y}', f'https://understat.com/team/Fiorentina/{y}'):
+        try: t = get(url, tries=2)
+        except Exception as e: log('  Understat:', e); continue
+        try:
+            d = json.loads(t); dates = d.get('dates') or d.get('datesData')
+        except Exception:
+            m = re.search(r"datesData\s*=\s*JSON\.parse\('(.*?)'\)", t, re.S)
+            if m: dates = json.loads(m.group(1).encode().decode('unicode_escape'))
+        if dates: break
+    if not dates: log('  Understat: nessun dato (sito in manutenzione o struttura cambiata)'); return None
+    out = []
+    for d in dates:
+        try:
+            if not d.get('isResult') or 'ppda' not in d: continue
+            out.append({'data': d['datetime'][:10], 'side': d['side'], 'avv': d['a' if d['side'] == 'h' else 'h']['title'],
+                        'ppda': d['ppda'], 'ppda_allowed': d['ppda_allowed'], 'deep': int(d['deep']), 'deep_allowed': int(d['deep_allowed'])})
+        except Exception: continue
+    return out or None
+
+def understat_apply(s, fx):
+    """aggiunge m['us'] = {ppda, oppda, deep, deep_c, ppda_att, ppda_def, ...} alle partite di Serie A; True se ha trovato dati"""
+    U = understat_dates(s)
+    if not U: return False
+    n = 0
+    for k, f in fx.items():
+        if f['comp'] != 'Serie A': continue
+        m = rjson(f's/{s}/p/{k}.json')
+        if not m or m.get('stato') != 'FT': continue
+        opp = norm((m['osp'] if m['fio'] == 'c' else m['casa'])['nome'])
+        day = utc(m['data'])
+        u = next((u for u in U if abs((dt.datetime.fromisoformat(u['data']).date() - day.date()).days) <= 1
+                  and (u['side'] == 'h') == (m['fio'] == 'c') and (norm(u['avv'])[:5] in opp or opp[:5] in norm(u['avv']))), None)
+        if not u: continue
+        pa, po = u['ppda'], u['ppda_allowed']
+        us = {'ppda': r2(pa['att'] / pa['def']) if pa['def'] else None, 'oppda': r2(po['att'] / po['def']) if po['def'] else None,
+              'deep': u['deep'], 'deep_c': u['deep_allowed'], 'pa': [pa['att'], pa['def']], 'po': [po['att'], po['def']]}
+        if m.get('us') != us:
+            m['us'] = us; wjson(f's/{s}/p/{k}.json', m)
+        n += 1
+    log(f'  Understat: dati PPDA/deep in {n} partite di Serie A')
+    return n > 0
+
+# ------------------------------------------------------------------ statistiche di squadra stagionali (s/<stagione>/squadra.json)
+TEAM_KEYS = ['BallPossesion', 'expected_goals', 'expected_goals_open_play', 'expected_goals_set_play', 'expected_goals_non_penalty', 'expected_goals_on_target',
+             'total_shots', 'ShotsOnTarget', 'ShotsOffTarget', 'blocked_shots', 'shots_woodwork', 'shots_inside_box', 'shots_outside_box', 'big_chance', 'big_chance_missed_title', 'touches_opp_box',
+             'passes', 'accurate_passes', 'own_half_passes', 'opposition_half_passes', 'long_balls_accurate', 'accurate_crosses', 'player_throws', 'corners', 'Offsides',
+             'matchstats.headers.tackles', 'interceptions', 'shot_blocks', 'clearances', 'keeper_saves',
+             'duel_won', 'ground_duels_won', 'aerials_won', 'dribbles_succeeded', 'fouls', 'yellow_cards', 'red_cards']
+def _sv(v):
+    """valore statistica partita -> (numero, percentuale o None)"""
+    if v is None: return None, None
+    if isinstance(v, (int, float)): return float(v), None
+    m = re.match(r'\s*(-?[\d.]+)\s*(?:\((\d+)%\))?', str(v))
+    if not m: return None, None
+    return float(m.group(1)), (int(m.group(2)) if m.group(2) else None)
+
+def team_season(s):
+    idx = rjson(f's/{s}/partite.json', {}) or {}
+    groups = {}
+    for row in idx.get('partite', []):
+        if not row.get('ris') or row.get('stato', 'FT') != 'FT': continue
+        m = rjson(f"s/{s}/p/{row['id']}.json")
+        if not m or m.get('stato', 'FT') != 'FT': continue
+        fi = 0 if m['fio'] == 'c' else 1
+        st = {r[0]: (r[2], r[3]) for r in (m.get('st') or {}).get('T', [])}
+        for comp in ('Tutte le competizioni', m['comp']):
+            g = groups.setdefault(comp, {'comp': comp, 'partite': 0, 'v': 0, 'n': 0, 'p': 0, 'gf': 0, 'gs': 0, 'cs': 0, 'casa': 0, 'S': {}, 'us': {'n': 0, 'pa': [0, 0], 'po': [0, 0], 'deep': 0, 'deep_c': 0}})
+            gf, gs = m['ris'][fi], m['ris'][1 - fi]
+            g['partite'] += 1; g['gf'] += gf; g['gs'] += gs; g['cs'] += gs == 0; g['casa'] += fi == 0
+            g['v' if gf > gs else 'p' if gf < gs else 'n'] += 1
+            for k in TEAM_KEYS:
+                if k not in st: continue
+                (fv, fp), (av, ap) = _sv(st[k][fi]), _sv(st[k][1 - fi])
+                if fv is None or av is None: continue
+                a = g['S'].setdefault(k, {'n': 0, 'f': 0.0, 'a': 0.0, 'ft': 0, 'at': 0, 'pct': False})
+                a['n'] += 1; a['f'] += fv; a['a'] += av
+                if k == 'accurate_passes' and 'passes' in st:   # tentativi = passaggi totali
+                    a['pct'] = True; a['ft'] += _sv(st['passes'][fi])[0] or 0; a['at'] += _sv(st['passes'][1 - fi])[0] or 0
+                elif fp is not None or ap is not None:
+                    a['pct'] = True
+                    a['ft'] += round(fv * 100 / fp) if fp else fv; a['at'] += round(av * 100 / ap) if ap else av
+            u = m.get('us')
+            if u and u.get('pa'):
+                U = g['us']; U['n'] += 1; U['deep'] += u['deep']; U['deep_c'] += u['deep_c']
+                U['pa'] = [U['pa'][0] + u['pa'][0], U['pa'][1] + u['pa'][1]]; U['po'] = [U['po'][0] + u['po'][0], U['po'][1] + u['po'][1]]
+    out = []
+    order = ['Tutte le competizioni', 'Serie A', 'Coppa Italia', 'Conference League', 'Europa League', 'Champions League', 'Supercoppa Italiana']
+    for comp in sorted(groups, key=lambda c: order.index(c) if c in order else 99):
+        g = groups[comp]
+        if comp != 'Tutte le competizioni' and g['partite'] == groups['Tutte le competizioni']['partite']: continue   # una sola competizione: inutile ripeterla
+        stats = []
+        for k in TEAM_KEYS:
+            a = g['S'].get(k)
+            if not a: continue
+            if k == 'BallPossesion': stats.append([k, round(a['f'] / a['n'], 1), round(a['a'] / a['n'], 1), a['n'], 'avg']); continue
+            iv = lambda x: int(x) if float(x).is_integer() else round(x, 2)
+            row = [k, iv(a['f']), iv(a['a']), a['n'], 'sum']
+            if a['pct'] and a['ft'] and a['at']: row += [round(a['f'] / a['ft'] * 100), round(a['a'] / a['at'] * 100), int(a['ft']), int(a['at'])]
+            stats.append(row)
+        U = g['us']
+        us = {'partite': U['n'], 'ppda': r2(U['pa'][0] / U['pa'][1]) if U['pa'][1] else None, 'oppda': r2(U['po'][0] / U['po'][1]) if U['po'][1] else None,
+              'deep': U['deep'], 'deep_c': U['deep_c']} if U['n'] else None
+        out.append({k: g[k] for k in ('comp', 'partite', 'v', 'n', 'p', 'gf', 'gs', 'cs', 'casa')} | {'stats': stats, 'understat': us})
+    res = {'v': 1, 'stagione': s, 'agg': iso(now_utc()), 'gruppi': out,
+           'fonte': 'Somma delle statistiche FotMob (dati Opta) di ogni partita ufficiale presente nell\'app; PPDA e deep completions da Understat (solo Serie A).'}
+    wjson(f's/{s}/squadra.json', res)
+    return res
+
 # ------------------------------------------------------------------ modi
 def cfg():
     c = rjson('seasons.json')
@@ -756,7 +924,7 @@ def do_matches(s, fx, which, stato_req=None, forza=False, heat_days=14):
 def main():
     global ROOT
     ap = argparse.ArgumentParser(description='Viola Stats – aggiornamento dati')
-    ap.add_argument('modo', choices=['auto', 'intervallo', 'fine', 'heatmap', 'season-rollover', 'backfill', 'giocatori'])
+    ap.add_argument('modo', choices=['auto', 'intervallo', 'fine', 'heatmap', 'season-rollover', 'backfill', 'giocatori', 'squadra'])
     ap.add_argument('--root', default=os.environ.get('VIOLA_ROOT', '.'))
     ap.add_argument('--forza', action='store_true')
     ap.add_argument('--stagione', help='solo questa stagione')
@@ -813,6 +981,11 @@ def main():
         if s == cur and a.modo in ('fine', 'heatmap', 'backfill'):
             season_data(s, fx, tables.get('seriea'))
             calendario(s, fx)
+        if a.modo in ('fine', 'heatmap', 'backfill', 'squadra'):
+            if a.modo != 'fine' or s == cur:
+                try: understat_apply(s, fx)
+                except Exception as e: log('  Understat errore:', e)
+            team_season(s)
         elif s != cur and a.modo == 'backfill':
             pass   # stagioni concluse: stagione.json resta quello verificato
     if a.modo in ('heatmap', 'backfill', 'giocatori'):

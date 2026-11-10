@@ -21,7 +21,8 @@ riserva)
 |---|---|
 | `seasons.json` | stagione corrente e le 2 stagioni tenute (es. `["2026-27","2025-26"]`). L'app legge da qui l'elenco delle stagioni: al cambio stagione si adatta **senza reinstallare**. |
 | `calendario.json` | prossime partite della Fiorentina (data UTC, competizione, avversario, id FotMob/ESPN). |
-| `s/<stagione>/stagione.json` | classifica Serie A, marcatori/assist/G+A, rosa per ruolo, formazione tipo, foto squadra, verifiche. |
+| `s/<stagione>/stagione.json` | classifica Serie A, marcatori/assist/G+A, rosa per ruolo (solo giocatori ancora in prima squadra: FotMob incrociato con il sito ufficiale acffiorentina.com; i partiti sono in `usciti`), formazione tipo, foto squadra, verifiche. |
+| `s/<stagione>/squadra.json` | statistiche di squadra della stagione (somma e media delle statistiche di ogni partita, per competizione) + PPDA/deep da Understat quando disponibile. |
 | `s/<stagione>/partite.json` | elenco partite della stagione (risultato, stato `HT`/`FT`, livello dei dati). |
 | `s/<stagione>/p/AAAAMMGG.json` | una partita: eventi, statistiche squadra (totale / 1º / 2º tempo), tiri, momentum, formazioni, statistiche individuali **di entrambe le squadre**, heatmap e posizione media. |
 | `g/<id FotMob>.json` | un giocatore della Fiorentina: info, carriera, statistiche stagionali per squadra e competizione (con per 90' e percentili), heatmap stagionale, ultime partite. |
