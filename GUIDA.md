@@ -24,7 +24,7 @@ riserva)
 | `s/<stagione>/stagione.json` | classifica Serie A, marcatori/assist/G+A, rosa per ruolo (solo giocatori ancora in prima squadra: FotMob incrociato con il sito ufficiale acffiorentina.com; i partiti sono in `usciti`), formazione tipo, foto squadra, verifiche. |
 | `s/<stagione>/squadra.json` | statistiche di squadra della stagione (somma e media delle statistiche di ogni partita, per competizione) + PPDA/deep da Understat quando disponibile. |
 | `s/<stagione>/partite.json` | elenco partite della stagione (risultato, stato `HT`/`FT`, livello dei dati). |
-| `s/<stagione>/p/AAAAMMGG.json` | una partita: eventi, statistiche squadra (totale / 1º / 2º tempo), tiri, momentum, formazioni, statistiche individuali **di entrambe le squadre**, heatmap e posizione media. |
+| `s/<stagione>/p/AAAAMMGG.json` | una partita: eventi, statistiche squadra (totale / 1º / 2º tempo), tiri, momentum, formazioni, statistiche individuali **di entrambe le squadre**, heatmap e posizione media. Ogni tiro è una lista con le chiavi in `tiriK`; dalla v1.4 in coda ci sono anche `gy`/`gz` (punto in cui il tiro attraversa la linea di porta: y del campo 0–68, porta tra 30,34 e 37,66; altezza in metri), `bx`/`by` (punto del muro/parata), `linea` (salvato sulla linea) e `area` (tiro da dentro l'area). |
 | `g/<id FotMob>.json` | un giocatore della Fiorentina: info, carriera, statistiche stagionali per squadra e competizione (con per 90' e percentili), heatmap stagionale, ultime partite. |
 | `scripts/viola.py` | lo script di aggiornamento (solo Python 3 standard, nessuna libreria da installare). |
 | `scripts/pubblica.sh` | fa commit e push delle modifiche (solo se ci sono). |

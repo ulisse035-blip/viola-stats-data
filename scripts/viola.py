@@ -151,6 +151,23 @@ def match_state(pp):
     if g.get('started'): return 'LIVE'
     return 'NS'
 
+TIRI_K = ['sq', 'pid', 'nome', 'min', 'rec', 'esito', 'x', 'y', 'xg', 'xgot', 'situaz', 'tipo', 'porta', 'murato', 'autogol',
+          'gy', 'gz', 'bx', 'by', 'linea', 'area']
+
+def shots_of(c, home):
+    """tiri FotMob -> liste compatte (chiavi in TIRI_K)"""
+    tiri = []
+    for s in (c.get('shotmap') or {}).get('shots') or []:
+        tiri.append(['c' if s['teamId'] == home['id'] else 'o', s.get('playerId'), s.get('playerName'), s.get('min'), s.get('minAdded') or 0,
+                     SHOT_T.get(s.get('eventType'), s.get('eventType')), r2(s['x'], 1), r2(s['y'], 1), r2(s.get('expectedGoals')),
+                     r2(s.get('expectedGoalsOnTarget')), s.get('situation'), s.get('shotType'), 1 if s.get('isOnTarget') else 0,
+                     1 if s.get('isBlocked') else 0, 1 if s.get('isOwnGoal') else 0,
+                     # v1.4 (in coda, le app 1.2/1.3 leggono solo i primi 15 campi): punto in cui il tiro attraversa la linea di porta
+                     # (gy = coordinata y del campo 0-68, porta tra 30.34 e 37.66; gz = altezza in metri), punto del muro, salvataggio sulla linea, tiro da dentro l'area
+                     r2(s.get('goalCrossedY')), r2(s.get('goalCrossedZ')), r2(s.get('blockedX'), 1), r2(s.get('blockedY'), 1),
+                     1 if s.get('isSavedOffLine') else 0, 1 if s.get('isFromInsideBox') else 0])
+    return tiri
+
 def build_fotmob(pp, meta, stato):
     g = pp['general']; c = pp['content']; hd = pp['header']
     teams = hd['teams']; home, away = teams[0], teams[1]
@@ -206,14 +223,8 @@ def build_fotmob(pp, meta, stato):
     out['st'] = st
     out['mom'] = [[r2(p['minute'], 1), int(p['value'])] for p in ((c.get('momentum') or {}).get('main', {}) or {}).get('data') or []]
     if c.get('attackingZones'): out['zone'] = c['attackingZones']
-    tiri = []
-    for s in (c.get('shotmap') or {}).get('shots') or []:
-        tiri.append(['c' if s['teamId'] == home['id'] else 'o', s.get('playerId'), s.get('playerName'), s.get('min'), s.get('minAdded') or 0,
-                     SHOT_T.get(s.get('eventType'), s.get('eventType')), r2(s['x'], 1), r2(s['y'], 1), r2(s.get('expectedGoals')),
-                     r2(s.get('expectedGoalsOnTarget')), s.get('situation'), s.get('shotType'), 1 if s.get('isOnTarget') else 0,
-                     1 if s.get('isBlocked') else 0, 1 if s.get('isOwnGoal') else 0])
-    out['tiriK'] = ['sq', 'pid', 'nome', 'min', 'rec', 'esito', 'x', 'y', 'xg', 'xgot', 'situaz', 'tipo', 'porta', 'murato', 'autogol']
-    out['tiri'] = tiri
+    out['tiriK'] = TIRI_K
+    out['tiri'] = shots_of(c, home)
     psd = c.get('playerStats') or {}
     def mins_of(pid):
         for grp in (psd.get(str(pid)) or {}).get('stats') or []:
