@@ -920,7 +920,7 @@ def do_matches(s, fx, which, stato_req=None, forza=False, heat_days=14):
             if not prev or prev.get('stato') != 'FT' or (prev.get('heatN') and not forza) or age > heat_days: continue
         elif which == 'intervallo':
             if age < 0 or age > 0.2 or f['giocata']: continue
-            if prev and prev.get('stato') in ('HT', 'FT'): continue
+            if prev and (prev.get('stato') == 'FT' or (prev.get('stato') == 'HT' and not prev.get('nota'))): continue
         elif which == 'backfill':
             if not f['giocata']: continue
             if prev and level(prev) >= 13 and not forza: continue
@@ -961,7 +961,7 @@ def main():
             except Exception as e: log('  ESPN non raggiungibile:', e)
         log(f'  partita {f["casa"]["nome"]}-{f["osp"]["nome"]}: stato {st}')
         mins = (now - utc(f['data'])).total_seconds() / 60
-        if st == 'HT' or (st == 'LIVE' and mins > 60 and not prev): a.modo = 'intervallo'
+        if (st == 'HT' and not (prev and prev.get('stato') == 'HT' and not prev.get('nota'))) or (st == 'LIVE' and mins > 60 and not prev): a.modo = 'intervallo'
         elif st == 'FT': a.modo = 'fine'
         else: finish(t0); return 0
     if a.modo == 'season-rollover':

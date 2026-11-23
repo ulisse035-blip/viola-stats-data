@@ -1,5 +1,6 @@
 name: Partita (intervallo e fine)
 # Ogni 15 minuti: lo script esce subito se non c'e' una partita della Fiorentina in corso.
+# Quando trova una partita in corso resta attivo e controlla ogni 2 minuti fino al fischio finale.
 # Durante una partita salva le statistiche all'intervallo e a fine gara.
 on:
   schedule:
@@ -18,11 +19,8 @@ concurrency:
 jobs:
   aggiorna:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
-      - name: Aggiorna dati
-        run: python3 scripts/viola.py "${{ github.event.inputs.modo || 'auto' }}"
-      - name: Pubblica le modifiche
-        run: |
-          bash scripts/pubblica.sh "partita: ${{ github.event.inputs.modo || 'auto' }}"
+      - name: Segui la partita (controllo ogni 2 minuti fino alla fine)
+        run: bash scripts/segui.sh "${{ github.event.inputs.modo || 'auto' }}"
