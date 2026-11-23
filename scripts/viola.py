@@ -221,7 +221,7 @@ def build_fotmob(pp, meta, stato):
         if rows: st[lab] = rows
     if stato == 'HT' and '1T' in st: st = {'T': st['1T'], '1T': st['1T']}
     out['st'] = st
-    out['mom'] = [[r2(p['minute'], 1), int(p['value'])] for p in ((c.get('momentum') or {}).get('main', {}) or {}).get('data') or []]
+    out['mom'] = [[r2(p['minute'], 1), int(p['value'])] for p in ((c.get('momentum') or {}).get('main', {}) or {}).get('data') or [] if p.get('minute') is not None and p.get('value') is not None]
     if c.get('attackingZones'): out['zone'] = c['attackingZones']
     out['tiriK'] = TIRI_K
     out['tiri'] = shots_of(c, home)
